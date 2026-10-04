@@ -2,11 +2,11 @@ apiVersion: v2
 name: hyundai-monitor
 description: IONIQ 5 telemetry collector (hyundai_kia_connect_monitor) appending cached readings to CSV history on a persistent volume
 type: application
-version: 0.1.1
+version: 0.2.0
 # The image built from this repository, tagged from the repository's own release
 # tags. Not the upstream collector version: upstream publishes no releases, so
 # the pinned commit lives in the Dockerfile where Renovate can see it.
-appVersion: "0.1.1"
+appVersion: "0.1.2"
 keywords:
   - hyundai
   - ioniq5

@@ -92,8 +92,9 @@ ENV PATH="/opt/venv/bin:${PATH}"
 RUN VIRTUAL_ENV=/opt/venv uv pip install --no-cache "pytest==${PYTEST_VERSION}"
 
 COPY tests/ /src/tests/
+COPY exporter.py /src/exporter.py
 # -p no:cacheprovider: the source tree is not writable in all build contexts.
-RUN cd /src && MONITOR_PY=/src/monitor.py \
+RUN cd /src && MONITOR_PY=/src/monitor.py EXPORTER_PY=/src/exporter.py \
     python -m pytest tests -q -p no:cacheprovider
 
 
@@ -115,12 +116,15 @@ RUN apt-get update \
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /app /app
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+# Runs as a sidecar off the same image, so there is no second thing to build or
+# bump. It only reads the data volume.
+COPY exporter.py /app/exporter.py
 
 # get_filepath() in monitor_utils.py looks in the working directory first and
 # then next to the script. The working directory is the data volume, which must
 # never hold credentials, so the assembled config is reached through this
 # symlink into a writable tmpfs. /config is an emptyDir in the chart.
-RUN chmod +x /app/docker-entrypoint.sh \
+RUN chmod +x /app/docker-entrypoint.sh /app/exporter.py \
     && ln -s /config/monitor.cfg /app/monitor.cfg \
     && mkdir -p /config /data \
     && chown monitor:monitor /config /data

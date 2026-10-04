@@ -99,6 +99,39 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+        {{- if .Values.metrics.enabled }}
+        # Reads the same volume, read-only, and publishes
+        # hyundai_monitor_last_run_timestamp_seconds. It must never be able to
+        # take the collector down with it, hence no probes and its own limits.
+        - name: metrics
+          image: {{ include "hyundai-monitor.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # tini, for the same reason as the collector: python as PID 1 leaves
+          # SIGTERM unhandled, so the pod would sit out its grace period.
+          command: ["/usr/bin/tini", "--", "python", "-u", "/app/exporter.py"]
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: MONITOR_DATA_DIR
+              value: /data
+            - name: EXPORTER_PORT
+              value: {{ .Values.metrics.port | quote }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              readOnly: true
+          {{- with .Values.metrics.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}

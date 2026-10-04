@@ -115,6 +115,25 @@ configVolume:
   medium: Memory
   sizeLimit: 1Mi
 
+# Metrics for the staleness alert. The host timer that used to mail when
+# collection went stale read monitor.lastrun off disk; nothing outside this pod
+# can read it now, because the volume is ReadWriteOnce. So a sidecar off the
+# same image publishes the timestamp and VictoriaMetrics scrapes it.
+metrics:
+  enabled: true
+  port: 9091
+  # VMPodScrape, for the victoria-metrics-operator. Turn off if the cluster has
+  # no operator; the sidecar then still serves metrics on the pod IP.
+  podScrape:
+    enabled: true
+    interval: 60s
+  resources:
+    requests:
+      cpu: 5m
+      memory: 16Mi
+    limits:
+      memory: 48Mi
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

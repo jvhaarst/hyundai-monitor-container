@@ -339,7 +339,36 @@ Then `--set shell.enabled=false`. Keep the release and the PVC: the PVC is
 annotated `helm.sh/resource-policy: keep`, so even `helm uninstall` leaves the
 data behind.
 
-## Staleness alerting (out of scope here — proposal)
+## Staleness alerting
+
+The host timer `car-monitor-alert.timer` read `monitor.lastrun`, compared it
+against `STALE_DAYS=2` / `REMIND_DAYS=7` and piped mail to
+`/usr/sbin/sendmail -t` through msmtp. That path cannot survive the move: no
+node but `raspi5` has a working MTA, and the file is on a ReadWriteOnce volume
+that only this pod mounts.
+
+The replacement is a metric. `exporter.py` runs as a sidecar off the same
+image, reads the same `monitor.lastrun`, and publishes:
+
+| Metric | Meaning |
+|---|---|
+| `hyundai_monitor_last_run_timestamp_seconds` | when the collector last completed a run — the staleness signal |
+| `hyundai_monitor_last_vehicle_update_timestamp_seconds` | timestamp of the newest reading Hyundai returned |
+| `hyundai_monitor_csv_rows{file=...}` | data rows per CSV; these only ever grow, so a drop means truncation |
+| `hyundai_monitor_up` | the exporter can read the data directory |
+
+A missing `monitor.lastrun` omits the sample rather than publishing `0`, so
+`absent()` catches it instead of the alert reading 1 January 1970 as an age.
+The sidecar mounts the volume read-only, has its own small limits, and has no
+probes: it must never be able to take the collector down.
+
+`VMPodScrape` (`metrics.podScrape.enabled`) hands it to the
+victoria-metrics-operator. Alerting itself lives in Grafana, which evaluates
+rules against the `VictoriaMetrics` datasource and mails through its own SMTP
+contact point — no `vmalert` or `vmalertmanager` needed, and no second mail
+path to maintain.
+
+### Old proposal, kept for the reasoning
 
 The host timer `car-monitor-alert.timer` reads `monitor.lastrun`, compares it
 against `STALE_DAYS=2` / `REMIND_DAYS=7` and pipes mail to
