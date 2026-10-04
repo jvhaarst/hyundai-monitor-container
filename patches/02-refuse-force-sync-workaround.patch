@@ -1,0 +1,32 @@
+Refuse to start when the force-sync workaround is enabled.
+
+monitor_force_sync_when_odometer_different_location_workaround routes into
+force_refresh_all_vehicles_states(), which wakes the car and drains its 12 V
+battery, and returns nothing the cached read does not already give. With
+monitor_infinite = True the process runs for weeks, so one wrong config value
+would keep waking the car. Fail at startup instead, with exit code 3.
+
+Not upstream. If this patch stops applying, do not ship the image until the
+guard is back: a plain checkout silently drops it.
+
+--- a/monitor.py
++++ b/monitor.py
+@@ -145,6 +145,18 @@ MONITOR_FORCE_SYNC_MAX_COUNT = to_int(
+ )
+ MONITOR_FORCE_SYNC_COUNT = 0
+
++# LOCAL GUARD, not upstream. force_refresh_all_vehicles_states() wakes the car
++# and drains its 12 V battery. With monitor_infinite = True the only remaining
++# protection is the config flag above, and monitor.cfg has been overwritten by a
++# tag checkout before now. Refuse to run rather than risk it.
++if MONITOR_FORCE_SYNC_WHEN_ODOMETER_DIFFERENT_LOCATION_WORKAROUND:
++    logging.error(
++        "REFUSING TO START: monitor_force_sync_when_odometer_different_location_workaround "
++        "is True. That path calls force_refresh_all_vehicles_states(), which wakes the car "
++        "and drains the 12 V battery. Set it to False in monitor.cfg."
++    )
++    sys.exit(3)
++
+
+ MONITOR_SOMETHING_WRITTEN_OR_ERROR = False
+

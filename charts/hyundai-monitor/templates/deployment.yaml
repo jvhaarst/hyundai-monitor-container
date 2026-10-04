@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hyundai-monitor.fullname" . }}
+  labels:
+    {{- include "hyundai-monitor.labels" . | nindent 4 }}
+spec:
+  # One writer. Two pods appending to the same CSVs would interleave rows, and
+  # the volume is ReadWriteOnce anyway.
+  replicas: {{ if .Values.collector.enabled }}1{{ else }}0{{ end }}
+  # Recreate, not RollingUpdate: the new pod would wait for a ReadWriteOnce
+  # Longhorn volume the old pod still holds, and the rollout deadlocks on
+  # Multi-Attach.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hyundai-monitor.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: collector
+  template:
+    metadata:
+      labels:
+        {{- include "hyundai-monitor.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: collector
+      annotations:
+        # Roll the pod when the settings change. Credentials are deliberately
+        # not hashed in: that would put a fingerprint of the Secret into an
+        # annotation every `kubectl describe pod` prints.
+        checksum/config: {{ toYaml .Values.config | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # monitor.py exits 112 via die() after more than 96 consecutive errors
+      # (~24 h at a 15-minute interval) and exits 3 when the no-wake guard
+      # trips. A Deployment can only restart Always, so exit 3 ends up in
+      # CrashLoopBackOff rather than a permanent failure; the exit code is in
+      # the pod's lastState.terminated and the reason is the first ERROR line
+      # in the log.
+      restartPolicy: Always
+      # The process sleeps between reads and holds no connection worth
+      # draining, so SIGTERM is enough. tini is PID 1 in the image, which is
+      # what makes SIGTERM arrive at all.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: collector
+          image: {{ include "hyundai-monitor.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: MONITOR_REGION
+              value: {{ .Values.config.region | quote }}
+            - name: MONITOR_BRAND
+              value: {{ .Values.config.brand | quote }}
+            - name: MONITOR_USE_GEOCODE
+              value: {{ ternary "True" "False" .Values.config.useGeocode | quote }}
+            - name: MONITOR_USE_GEOCODE_EMAIL
+              value: {{ ternary "True" "False" .Values.config.useGeocodeEmail | quote }}
+            - name: MONITOR_LANGUAGE
+              value: {{ .Values.config.language | quote }}
+            - name: MONITOR_ODOMETER_METRIC
+              value: {{ .Values.config.odometerMetric | quote }}
+            - name: MONITOR_INCLUDE_REGENERATE_IN_CONSUMPTION
+              value: {{ ternary "True" "False" .Values.config.includeRegenerateInConsumption | quote }}
+            - name: MONITOR_CONSUMPTION_EFFICIENCY_FACTOR_DAILYSTATS
+              value: {{ .Values.config.consumptionEfficiencyFactorDailystats | quote }}
+            - name: MONITOR_CONSUMPTION_EFFICIENCY_FACTOR_SUMMARY
+              value: {{ .Values.config.consumptionEfficiencyFactorSummary | quote }}
+            - name: MONITOR_INFINITE
+              value: {{ ternary "True" "False" .Values.config.infinite | quote }}
+            - name: MONITOR_INFINITE_INTERVAL_MINUTES
+              value: {{ .Values.config.intervalMinutes | quote }}
+            - name: MONITOR_FORCE_SYNC_MAX_COUNT
+              value: {{ .Values.config.forceSyncMaxCount | quote }}
+            - name: MONITOR_REQUIRE_EXISTING_HISTORY
+              value: {{ .Values.requireExistingHistory | quote }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+            - name: credentials
+              mountPath: /secrets
+              readOnly: true
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "hyundai-monitor.claimName" . }}
+          {{- else }}
+          # No history survives a restart. Only useful for a throwaway test.
+          emptyDir: {}
+          {{- end }}
+        - name: config
+          emptyDir:
+            medium: {{ .Values.configVolume.medium | quote }}
+            sizeLimit: {{ .Values.configVolume.sizeLimit | quote }}
+        - name: credentials
+          secret:
+            secretName: {{ include "hyundai-monitor.secretName" . }}
+            # 0440, not 0400: with fsGroup set the kubelet writes these files as
+            # root:fsGroup, so owner-only permissions would lock out the
+            # non-root collector.
+            defaultMode: 0440
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,130 @@
+# Default values for hyundai-monitor.
+
+image:
+  repository: ghcr.io/jvhaarst/hyundai-monitor
+  # Empty = the chart's appVersion, which is an immutable tag published from a
+  # repository release. Do not set this to `main`: the floating tag leaves the
+  # pod spec unchanged, so `helm upgrade` does not roll the pod and a new image
+  # only lands on the next restart. If you do use `main`, treat
+  # `kubectl rollout restart deployment/<release>-hyundai-monitor` as part of
+  # the release.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Set false to stop the collector without deleting the release or the volume.
+# Needed while seeding the volume, and while the host service is still the one
+# collecting: two writers appending to the same CSVs interleave rows.
+collector:
+  enabled: true
+
+# Credentials and the VIN-bearing account. Keep them out of values.yaml in
+# anything that is committed: use existingSecret, or --set on the command line.
+credentials:
+  # Secret with keys username and password, plus pin (which is empty on this
+  # account: region 1 logs in without one). Recommended.
+  existingSecret: ""
+  # Or let the chart create the Secret from these. The password contains a '%'
+  # on this account; it is written to the config with printf '%s', so no
+  # escaping or doubling is needed here.
+  username: ""
+  password: ""
+  # Empty is correct for region 1.
+  pin: ""
+
+# Non-credential settings. Defaults are what the host service runs today;
+# changing them changes what lands in two years of CSV history.
+config:
+  region: 1
+  brand: 2
+  useGeocode: true
+  useGeocodeEmail: true
+  language: en
+  odometerMetric: km
+  includeRegenerateInConsumption: false
+  consumptionEfficiencyFactorDailystats: "1.0"
+  consumptionEfficiencyFactorSummary: "1.0"
+  # One long-lived process that sleeps between cached reads: 96 reads a day
+  # plus one login, well inside the documented 200-calls-per-day limit.
+  infinite: true
+  intervalMinutes: 15
+  forceSyncMaxCount: 10
+
+# Etc/UTC, deliberately. Every node moved to Etc/UTC on 2026-10-03 and the
+# newest CSV rows are UTC. dailystats aggregates per calendar day, so a
+# different zone would shift the day boundary partway through the history.
+# Do not change this to Europe/Amsterdam.
+timezone: Etc/UTC
+
+# Refuse to start when the three CSVs are missing or empty. Protects against
+# the failure that looks like success: a wrong or empty volume, where the
+# collector happily creates new files and starts a fresh history.
+# Set false only when starting a new history on purpose.
+requireExistingHistory: true
+
+# The CSV history and monitor.lastrun. Over two years of readings that cannot
+# be rebuilt from anywhere else.
+persistence:
+  enabled: true
+  # Set explicitly: this cluster has more than one StorageClass marked default,
+  # so an unqualified claim is ambiguous.
+  storageClass: longhorn
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  # Use a volume that already exists (for example one seeded by hand) instead
+  # of letting the chart create it.
+  existingClaim: ""
+
+# Measured on the host: 30 MB RSS after 23 hours, negligible CPU. The 4 GB
+# nodes sit at 78-82% memory, so the request is the real number and the limit
+# only covers the once-a-day login.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    # No CPU limit: the process is idle between reads, and throttling the
+    # 15-minute wake-up buys nothing.
+    memory: 160Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  # Longhorn honours fsGroup, so the seeded CSVs end up group-writable by the
+  # collector regardless of the uid that wrote them.
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  # The config is assembled into an emptyDir and the CSVs live on the volume,
+  # so nothing writes to the image filesystem.
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Assembled monitor.cfg lives here. tmpfs, so the credentials never touch a
+# disk, and counted against the pod's memory limit -- hence the small size.
+configVolume:
+  medium: Memory
+  sizeLimit: 1Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+
+# A sleep pod holding the same volume, for seeding the history and for checking
+# the CSVs by hand. It holds a ReadWriteOnce volume, so set collector.enabled
+# to false while it runs and disable it again afterwards.
+shell:
+  enabled: false
+  image:
+    repository: busybox
+    tag: "1.37.0"

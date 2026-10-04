@@ -1,0 +1,22 @@
+Log the exception class in handle_exception().
+
+Every error handler funnels through handle_exception(), which logged only
+str(ex). An AuthenticationError (credentials dead, needs action) and a
+RateLimitingError (back off, resolves itself) were indistinguishable in the
+log. That ambiguity cost two months of lost data, twice.
+
+Not upstream.
+
+--- a/monitor.py
++++ b/monitor.py
+@@ -619,7 +619,9 @@ def handle_exception(ex: Exception, retries: int, stacktrace=False) -> tuple[int
+     - 9999: "Undefined Error - Response timeout"
+     """
+     exception_str = str(ex)
+-    error_string = f"Exception: {exception_str}"
++    # Log the class too: every handler funnels into here, so without it an
++    # AuthenticationError and a RateLimitingError look identical in the log.
++    error_string = f"Exception: {type(ex).__name__}: {exception_str}"
+     logging.warning(error_string)
+     if stacktrace and "Service Temporary Unavailable" not in exception_str:
+         traceback.print_exc()

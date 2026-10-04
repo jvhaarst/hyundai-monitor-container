@@ -1,0 +1,20 @@
+# Git
+.git
+.gitignore
+
+# Claude
+.claude
+
+# Documentation and prompt
+README.md
+*-prompt.md
+
+# Helm chart and workflows: not part of the image
+charts/
+.github/
+
+# Never let real data or credentials near the build context
+monitor.cfg
+monitor*.csv
+monitor.lastrun
+*.key

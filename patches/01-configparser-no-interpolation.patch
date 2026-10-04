@@ -1,0 +1,35 @@
+Read monitor.cfg with interpolation disabled.
+
+The Hyundai account password contains a literal '%'. ConfigParser's default
+BasicInterpolation treats '%' as interpolation syntax, so the password is
+mangled and the login fails. interpolation=None reads the value verbatim.
+
+Not upstream. If this patch stops applying, upstream changed the config
+reading and the fix must be re-expressed before the image is usable.
+
+--- a/monitor.py
++++ b/monitor.py
+@@ -97,7 +97,9 @@ if KEYWORD_ERROR or arg_has("help"):
+
+ TEST = arg_has("test")
+ # == read monitor in monitor.cfg ===========================
+-parser = configparser.ConfigParser()
++# interpolation=None: a password containing '%' is valid and must not be read
++# as ConfigParser interpolation syntax. Not upstream -- reapply after upgrades.
++parser = configparser.ConfigParser(interpolation=None)
+ parser.read(get_filepath("monitor.cfg"))
+ monitor_settings = dict(parser.items("monitor", raw=True))
+
+--- a/monitor_utils.py
++++ b/monitor_utils.py
+@@ -410,7 +410,9 @@ def reverse_read_next_line(
+ def read_translations() -> dict:
+     """read translations"""
+     if len(TR_HELPER) == 0:
+-        parser = configparser.ConfigParser()
++        # interpolation=None: see monitor.py -- '%' in a password is not
++        # interpolation syntax. Not upstream -- reapply after upgrades.
++        parser = configparser.ConfigParser(interpolation=None)
+         parser.read(get_filepath("monitor.cfg"))
+         monitor_settings = dict(parser.items("monitor", raw=True))
+         language = get(monitor_settings, "language", "en").lower().strip()

@@ -1,0 +1,24 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hyundai-monitor.claimName" . }}
+  labels:
+    {{- include "hyundai-monitor.labels" . | nindent 4 }}
+  annotations:
+    # Keep the data when the release is uninstalled. The three CSVs hold over
+    # two years of readings and cannot be rebuilt: Hyundai serves the current
+    # cached state, not history.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  {{- if .Values.persistence.storageClass }}
+  # Set explicitly: the cluster has more than one class marked default, so an
+  # unqualified claim is ambiguous.
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+{{- end }}

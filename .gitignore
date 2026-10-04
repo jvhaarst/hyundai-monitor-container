@@ -1,0 +1,17 @@
+# Real configuration and collected data must never be committed
+monitor.cfg
+monitor*.csv
+monitor.lastrun
+*.key
+
+# Helm
+.helm-release/
+*.tgz
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Editors / OS
+.DS_Store

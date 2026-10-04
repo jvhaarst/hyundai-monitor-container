@@ -1,0 +1,88 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+currentValue=(?<currentValue>\\S+)\\nARG\\s+\\w+_COMMIT=(?<currentDigest>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\nARG\\s+\\w+_VERSION=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/charts/.+/Chart\\.yaml$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\nappVersion:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest",
+        "pin"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "The upstream collector is pinned by commit and carries three local patches. A bump is exactly the moment those patches can break, and the build applies them with -F0, so the PR check is the test. Never automerged: a green build still means reading the diff.",
+      "matchDatasources": [
+        "git-refs"
+      ],
+      "matchPackageNames": [
+        "https://github.com/ZuinigeRijder/hyundai_kia_connect_monitor"
+      ],
+      "automerge": false,
+      "groupName": "hyundai_kia_connect_monitor upstream",
+      "commitMessageTopic": "upstream collector",
+      "prBodyNotes": [
+        ":warning: This bump re-applies `patches/01-configparser-no-interpolation.patch`, `patches/02-refuse-force-sync-workaround.patch` and `patches/03-log-exception-class.patch`. A failing build means one of them no longer applies. Patch 02 is the guard that stops the car being woken: do not merge without it in the built image."
+      ]
+    },
+    {
+      "description": "The API client is the login path. Patch bumps have fixed and broken that login before now, so they land as a PR that must be read.",
+      "matchDatasources": [
+        "pypi"
+      ],
+      "matchPackageNames": [
+        "hyundai-kia-connect-api"
+      ],
+      "automerge": false,
+      "groupName": "hyundai_kia_connect_api"
+    },
+    {
+      "description": "Python itself: the collector needs >=3.12, and the working host install is 3.12.12. Let patch bumps through, hold a minor bump for review.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "python"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "major"
+      ],
+      "automerge": false
+    }
+  ]
+}

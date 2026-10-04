@@ -1,0 +1,44 @@
+{{ .Chart.Name }} {{ .Chart.Version }} — {{ include "hyundai-monitor.image" . }}
+
+Collector: {{ if .Values.collector.enabled }}enabled, one cached read every {{ .Values.config.intervalMinutes }} minutes{{ else }}DISABLED (replicas 0){{ end }}
+Timezone:  {{ .Values.timezone }}
+History:   {{ if .Values.persistence.enabled }}PVC {{ include "hyundai-monitor.claimName" . }} ({{ .Values.persistence.size }}, {{ .Values.persistence.storageClass | default "cluster default" }}), kept on uninstall{{ else }}emptyDir — NOTHING SURVIVES A RESTART{{ end }}
+
+The car is never woken: every read is a cached read from Hyundai's servers, and
+the collector refuses to start if the force-sync workaround is ever enabled.
+
+Watch it take its first reading:
+
+  kubectl -n {{ .Release.Namespace }} logs -f deployment/{{ include "hyundai-monitor.fullname" . }}
+
+Confirm the two-year history is still intact, not replaced by a new one:
+
+  kubectl -n {{ .Release.Namespace }} exec deployment/{{ include "hyundai-monitor.fullname" . }} -- \
+    sh -c 'for f in monitor.csv monitor.dailystats.csv monitor.tripinfo.csv; do echo "$f: $(wc -l < $f) lines, $(sed -n 2p $f | cut -c1-19)"; done'
+
+The first data row must still be 2024-04-01 (monitor.csv), 20240303
+(dailystats) and 20240102 (tripinfo).
+{{ if not .Values.persistence.existingClaim }}
+Seed the volume from the host before the first real run:
+
+  helm upgrade --install {{ .Release.Name }} ... --set collector.enabled=false --set shell.enabled=true
+  POD=$(kubectl -n {{ .Release.Namespace }} get pod -l app.kubernetes.io/component=shell -o name | head -1)
+  for f in monitor.csv monitor.dailystats.csv monitor.tripinfo.csv monitor.lastrun; do
+    kubectl -n {{ .Release.Namespace }} cp "$f" "{{ .Release.Namespace }}/${POD#pod/}:/data/$f"
+  done
+  helm upgrade --install {{ .Release.Name }} ... --set collector.enabled=true --set shell.enabled=false
+{{ end }}
+{{- if .Values.shell.enabled }}
+WARNING: shell.enabled is true. That pod holds the ReadWriteOnce volume, so the
+collector can only start on the same node. Disable it when you are done.
+{{- end }}
+{{- if not .Values.requireExistingHistory }}
+WARNING: requireExistingHistory is false. An empty or wrong volume will start a
+fresh history instead of failing, which looks exactly like a successful start.
+{{- end }}
+{{- if eq (.Values.image.tag | default "") "main" }}
+WARNING: image.tag is `main`. The pod spec does not change when that tag moves,
+so `helm upgrade` will not roll the pod. Run
+`kubectl -n {{ .Release.Namespace }} rollout restart deployment/{{ include "hyundai-monitor.fullname" . }}`
+as part of the release, or use an immutable tag.
+{{- end }}

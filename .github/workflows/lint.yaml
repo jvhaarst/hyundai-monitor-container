@@ -1,0 +1,49 @@
+name: Lint Helm Chart
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
+      - '.github/workflows/lint.yaml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
+      - '.github/workflows/lint.yaml'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+
+      - name: helm lint
+        run: helm lint charts/hyundai-monitor --set credentials.existingSecret=dummy
+
+      # Render with the two shapes that actually get deployed, so a template
+      # error in the seeding path is caught too.
+      - name: helm template (collector)
+        run: helm template test charts/hyundai-monitor --set credentials.existingSecret=dummy > /dev/null
+
+      - name: helm template (seeding)
+        run: |
+          helm template test charts/hyundai-monitor \
+            --set credentials.existingSecret=dummy \
+            --set collector.enabled=false \
+            --set shell.enabled=true > /dev/null
+
+      # The guard that keeps the car asleep is a property of the image, but the
+      # chart must not grow a knob that defeats it.
+      - name: no force-sync knob in the chart
+        run: |
+          if grep -ril "force_sync_when_odometer" charts/ ; then
+            echo "The chart must not expose the force-sync workaround." >&2
+            exit 1
+          fi
