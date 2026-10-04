@@ -71,7 +71,7 @@
       "groupName": "hyundai_kia_connect_api"
     },
     {
-      "description": "Python itself: the collector needs >=3.12, and the working host install is 3.12.12. Let patch bumps through, hold a minor bump for review.",
+      "description": "Python itself: the collector needs >=3.12 and the working host install is 3.12.12, so stay on the 3.12 series. Patch bumps automerge; a minor bump inside 3.12 would be reviewed, and 3.13+ is not offered at all -- a 3.14 image builds green while quietly moving off the interpreter this was verified on.",
       "matchDatasources": [
         "docker"
       ],
@@ -82,7 +82,8 @@
         "minor",
         "major"
       ],
-      "automerge": false
+      "automerge": false,
+      "allowedVersions": "<3.13"
     }
   ]
 }

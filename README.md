@@ -386,11 +386,9 @@ Replace `"context": "build"` with the name step 1 printed.
 The chart's `appVersion` is the image tag, and image semver tags come from the
 repository's own `v*` git tags. So the order is fixed:
 
-1. Bump `version` in `charts/hyundai-monitor/Chart.yaml` (and `appVersion` too
-   when the image changes), and commit. The release workflow **fails** if
-   `version` is already in the published index, naming the version to set. It
-   deliberately does not commit a bump of its own: CI pushing to the default
-   branch needs a ruleset bypass and races with Renovate's automerges.
+1. Bump `appVersion` in `charts/hyundai-monitor/Chart.yaml` when the image
+   changes, and commit. `version` only needs touching to move the chart's
+   major.minor.
 2. Tag and push the tag: `git tag v0.2.0 && git push origin v0.2.0`. That runs
    "Build and Push Container", which publishes `0.2.0`, `0.2` and `0`.
 3. The chart release runs on the `charts/**` change and **refuses to publish**
@@ -403,12 +401,24 @@ mismatch surfaces as `ImagePullBackOff` during `helm upgrade`, and because the
 Deployment uses `strategy: Recreate` the old pod is already gone at that point,
 so collection stops until someone rolls back.
 
-The image build itself is the other half: the three patches are applied inside
-it with `patch -F0` and then grepped for, and the push happens in the same
-action as the build. A patch that no longer applies fails the build, so no tag
-moves and no image reaches the registry. Both nets were tested by breaking a
-patch's context (`Hunk #1 FAILED`) and by deleting a patch file so the others
-still applied (the grep step caught it); each gave `docker build exit=1`.
+The published chart version is the `Chart.yaml` major.minor with the workflow
+run number as the patch digit, as in `ntp_dashboard_k8s` and
+`garmin_health_data_k8s`. Nothing in CI commits to the default branch:
+the inherited auto-bump step did, which the `main protection` ruleset rejects
+with `GH013` (it bypasses the repository-admin role, not the GitHub Actions
+app) and which also lost a push race against a Renovate automerge. Requiring a
+hand-written bump was the alternative, but Renovate's busybox tag lives in the
+chart's `values.yaml`: that PR automerges, triggers the release and carries no
+bump, so each one would leave a red run on main.
+
+The image build is the other half of the safety net: the three patches are
+applied inside it with `patch -F0` and then grepped for, and the push happens
+in the same action as the build. A patch that no longer applies fails the
+build, so no tag moves and no image reaches the registry. Both nets were tested
+by breaking a patch's context (`Hunk #1 FAILED`) and by deleting a patch file
+so the others still applied (the grep step caught it); each gave
+`docker build exit=1`. The same test against the upstream commit Renovate
+proposes in PR #1 (`4b819d5`) applied all three cleanly, at offsets.
 
 ## Repository layout
 

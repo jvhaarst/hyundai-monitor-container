@@ -100,39 +100,28 @@ jobs:
           curl -fsSL https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/index.yaml -o existing-index.yaml
           echo "exists=true" >> $GITHUB_OUTPUT
 
-      # This used to bump the version itself and push the bump to main. That
-      # cannot work next to a branch ruleset -- the push is rejected with GH013
-      # unless the Actions app is given a bypass -- and it raced with Renovate's
-      # automerges, which rejected the push as non-fast-forward. The chart
-      # version is a human decision, so the workflow states what it needs and
-      # stops instead of writing to the default branch.
-      - name: Require a new chart version
-        run: |
-          set -euo pipefail
-          CHART_FILE="charts/hyundai-monitor/Chart.yaml"
-          CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
-          echo "Chart version: ${CURRENT_VERSION}"
-
-          if [ ! -f existing-index.yaml ]; then
-            echo "No published index yet, so ${CURRENT_VERSION} is the first release."
-            exit 0
-          fi
-
-          if yq '.entries.hyundai-monitor[].version' existing-index.yaml | grep -qx -- "${CURRENT_VERSION}"; then
-            MAJOR=$(echo "${CURRENT_VERSION}" | cut -d. -f1)
-            MINOR=$(echo "${CURRENT_VERSION}" | cut -d. -f2)
-            PATCH=$(echo "${CURRENT_VERSION}" | cut -d. -f3)
-            SUGGESTED="${MAJOR}.${MINOR}.$((PATCH + 1))"
-            echo "::error::chart version ${CURRENT_VERSION} is already published. Bump .version in ${CHART_FILE} (${SUGGESTED}, say) in the same commit as the chart change."
-            exit 1
-          fi
-
-          echo "${CURRENT_VERSION} is not in the index yet."
-
+      # The published version is the chart's major.minor with the workflow run
+      # number as the patch digit, which is what ntp_dashboard_k8s and
+      # garmin_health_data_k8s do. It means no step ever has to commit to the
+      # default branch: the earlier auto-bump did, and with the `main
+      # protection` ruleset in place that push is rejected with GH013 unless the
+      # Actions app is given a bypass, besides racing with Renovate automerges.
+      #
+      # Requiring a hand-written bump instead was the other candidate, but
+      # Renovate's busybox tag lives in the chart's values.yaml: that PR
+      # automerges, triggers this workflow and carries no version bump, so every
+      # such automerge would leave a red release run on main.
+      #
+      # Chart.yaml keeps the meaningful major.minor, and appVersion still pins
+      # the image, which the gate above has already proved exists.
       - name: Package Helm chart
         run: |
+          set -euo pipefail
           mkdir -p .helm-release
-          helm package charts/hyundai-monitor -d .helm-release
+          BASE_VERSION=$(yq '.version' charts/hyundai-monitor/Chart.yaml)
+          NEW_VERSION="${BASE_VERSION%.*}.${{ github.run_number }}"
+          echo "Publishing chart version ${NEW_VERSION} (Chart.yaml says ${BASE_VERSION})"
+          helm package charts/hyundai-monitor -d .helm-release --version "${NEW_VERSION}"
 
       - name: Generate Helm repo index
         run: |
