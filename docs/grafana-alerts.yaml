@@ -1,0 +1,192 @@
+# Grafana alert rules for the IONIQ 5 collector.
+#
+# These are the replacement for the host timer `car-monitor-alert.timer`, which
+# read monitor.lastrun and mailed through msmtp on raspi5. Grafana evaluates
+# them against the `VictoriaMetrics` datasource and mails through its existing
+# SMTP contact point, so there is no vmalert, no alertmanager and no second
+# mail path.
+#
+# The thresholds come from the host script: STALE_DAYS=2, and the collector
+# wakes every 15 minutes, so 48h without a completed run is unambiguous.
+#
+# This file is the git-tracked copy. Grafana reads its rules from
+# /etc/grafana/provisioning/alerting/rules.yaml, which the
+# victoria-metrics-k8s-stack chart renders from `grafana.alerting` values --
+# merge the `groups:` entry below into that file's list.
+#
+# noDataState: Alerting on the staleness rule is deliberate. If the exporter
+# stops publishing, or the pod disappears entirely, that is exactly the
+# condition the old timer existed to catch, so silence must not look healthy.
+
+apiVersion: 1
+groups:
+  - folder: Hyundai
+    interval: 10m
+    name: hyundai-monitor
+    orgId: 1
+    rules:
+      - uid: hyundai-monitor-stale
+        title: Hyundai monitor stale
+        condition: C
+        for: 1h
+        noDataState: Alerting
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: The IONIQ 5 collector has not completed a run for over 2 days
+          description: >-
+            hyundai_monitor_last_run_timestamp_seconds is more than 48 hours
+            old. The collector wakes every 15 minutes, so this means collection
+            has stopped: a dead account, a rate limit it never recovered from,
+            or a pod that cannot start. Check
+            `kubectl -n hyundai-monitor logs deployment/hyundai-monitor`. This
+            replaces the car-monitor-alert.timer that used to mail from raspi5
+            with STALE_DAYS=2.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              editorMode: code
+              expr: (time() - hyundai_monitor_last_run_timestamp_seconds) / 3600
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [48]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: hyundai-monitor-history-shrank
+        title: Hyundai monitor history shrank
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: A CSV in the IONIQ 5 history lost rows ({{ $labels.file }})
+          description: >-
+            hyundai_monitor_csv_rows for {{ $labels.file }} is lower than its
+            maximum over the last 7 days. These files are only ever appended
+            to and hold over two years of readings that cannot be rebuilt, so a
+            drop means a truncation or a wrong volume. Stop the collector before
+            anything else overwrites it:
+            `helm -n hyundai-monitor upgrade ... --set collector.enabled=false`.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 604800
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              editorMode: code
+              expr: max_over_time(hyundai_monitor_csv_rows[7d]) - hyundai_monitor_csv_rows
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+
+      - uid: hyundai-monitor-refused-to-start
+        title: Hyundai monitor refused to start
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+        annotations:
+          summary: The IONIQ 5 collector exited 3 — the no-wake guard tripped
+          description: >-
+            The container last terminated with exit code 3, which only happens
+            when monitor_force_sync_when_odometer_different_location_workaround
+            is True. That path calls force_refresh_all_vehicles_states(), which
+            wakes the car and drains its 12 V battery, so the collector refuses
+            to run. A Deployment can only restart Always, so this crash-loops
+            rather than failing permanently -- which is why it needs an alert
+            and not just a pod status.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              editorMode: code
+              expr: >-
+                max by (pod) (kube_pod_container_status_last_terminated_exitcode{namespace="hyundai-monitor",
+                container="collector"} == 3)
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
