@@ -21,7 +21,7 @@ FROM python:${PYTHON_VERSION}-slim-trixie AS builder
 # the default branch and opens a digest PR; that PR is also the moment the
 # patches below are re-tested, which is the point of pinning this way.
 # renovate: datasource=git-refs depName=https://github.com/ZuinigeRijder/hyundai_kia_connect_monitor currentValue=main
-ARG MONITOR_COMMIT=a3744c096db66be077f7b496c96b76f6afc8854d
+ARG MONITOR_COMMIT=4b819d59f87671c215690f059ec23dc99eda34a8
 
 # Was a second git checkout on the host, at tag v4.33.1. That tree is
 # byte-identical to the PyPI distribution of the same version (verified
