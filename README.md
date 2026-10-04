@@ -29,9 +29,9 @@ A change that could reach force-refresh is a release blocker, not a bug.
 
 | Piece | Version | Source |
 |---|---|---|
-| Python | 3.12.12 | `python:3.12.12-slim-trixie`; the API client declares `Requires-Python >=3.12`, and 3.12.12 is what the working host install runs |
+| Python | 3.14.8 | `python:${PYTHON_VERSION}-slim-trixie`. The API client declares `Requires-Python >=3.12`; the host service runs 3.12.12, and 3.14.8 was adopted on evidence — the suite passes and a real cached read against the account succeeded on it (see below) |
 | Collector | commit `a3744c0` | tarball of the pinned commit, plus the three patches |
-| `hyundai-kia-connect-api` | 4.33.1 | PyPI |
+| `hyundai-kia-connect-api` | 4.35.0 | PyPI |
 
 The host had `hyundai_kia_connect_api` vendored as a second git checkout at tag
 `v4.33.1`. That tree was diffed against the PyPI distribution of the same
@@ -496,8 +496,13 @@ steps alike.
   history when `requireExistingHistory=true`, and on any attempt to enable the
   force-sync workaround.
 
-- Step 2 of the dry-run story was executed on `raspi5` against the real
-  account, on a copy of the CSVs, while the host service kept running:
+- Step 2 of the dry-run story was executed twice on `raspi5` against the real
+  account, on a copy of the CSVs, while the host service kept running. First on
+  Python 3.12.12 with API client 4.33.1, then again on 2026-10-04 at 09:57 UTC
+  with the released image's Python 3.14.8 and API client 4.35.0: one login, one
+  cached read (`vehicle update 2026-10-04 09:19:38`, 12 V 72%, SOC 79%,
+  odometer 70879.4 km, plugged in), exactly one row appended, exit 0, no
+  `force_refresh` in the log, 2024-04-01 first row untouched. The earlier run:
   one login, one cached read (`vehicle update 2026-10-04 06:22:19`, 12 V 72%,
   SOC 79%, odometer 70879.4 km), **exactly one** row appended to
   `monitor.csv`, `monitor.lastrun` rewritten, exit code 0, no mention of

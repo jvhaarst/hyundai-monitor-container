@@ -6,7 +6,7 @@ version: 0.1.1
 # The image built from this repository, tagged from the repository's own release
 # tags. Not the upstream collector version: upstream publishes no releases, so
 # the pinned commit lives in the Dockerfile where Renovate can see it.
-appVersion: "0.1.0"
+appVersion: "0.1.1"
 keywords:
   - hyundai
   - ioniq5
