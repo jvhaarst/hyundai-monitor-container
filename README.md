@@ -424,4 +424,19 @@ steps alike.
   cfg carries `pin =` with nothing after it. The entrypoint and the chart treat
   the pin as optional; an empty value stays empty.
 
-Not yet done: the cutover itself.
+- The published artefacts: `ghcr.io/jvhaarst/hyundai-monitor:main` is public and
+  multi-arch (`linux/amd64`, `linux/arm64`, 163 MB), and chart 0.1.0 is in the
+  index at `https://jvhaarst.github.io/hyundai-monitor-container`. The pulled
+  arm64 image was re-checked on `raspi5`: config assembly with the `%` and an
+  empty pin, and exit code 3 from the no-wake guard.
+- `main protection` is active on the default branch, gating on the check named
+  `build` pinned to `integration_id: 15368`, with the repository-admin role
+  bypassed. `allow_auto_merge` and `delete_branch_on_merge` are on, and
+  Renovate has onboarded the repository.
+
+Not yet done: the cutover itself — seeding the PVC and stopping
+`hyundai-monitor.service` on `raspi5`.
+
+GitHub Pages had to be switched to "GitHub Actions" before the chart release
+workflow could publish; a fresh fork or clone of this repository needs the same
+one-off step (`gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`).
