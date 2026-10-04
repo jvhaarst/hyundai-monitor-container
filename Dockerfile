@@ -1,12 +1,16 @@
 # syntax=docker/dockerfile:1
 
+# Global, so it can be expanded in a FROM. buildx refuses variable expansion in
+# `COPY --from`, so the uv image has to come in as a named stage.
+# renovate: datasource=github-releases depName=astral-sh/uv
+ARG UV_VERSION=0.12.23
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
+
 # Python 3.12 is not cosmetic: hyundai-kia-connect-api 4.33.1 declares
 # Requires-Python >=3.12, and the working host install runs 3.12.12. The patch
 # version is pinned so a Python bump arrives as a reviewable Renovate PR.
 FROM python:3.12.12-slim-trixie AS builder
-
-# renovate: datasource=github-releases depName=astral-sh/uv
-ARG UV_VERSION=0.12.23
 
 # The upstream collector has no release tags worth tracking and no container
 # image of its own, so it is vendored from a pinned commit. Renovate watches
@@ -25,7 +29,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl patch \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:${UV_VERSION} /uv /usr/local/bin/uv
+COPY --from=uvbin /uv /usr/local/bin/uv
 
 # Dependencies. geopy is deliberately absent: reverse geocoding goes to
 # Nominatim over plain requests and works without it. gspread and paho-mqtt are
