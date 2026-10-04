@@ -86,7 +86,7 @@ RUN mkdir -p /app \
 FROM builder AS test
 
 # renovate: datasource=pypi depName=pytest
-ARG PYTEST_VERSION=8.4.2
+ARG PYTEST_VERSION=9.1.1
 
 ENV PATH="/opt/venv/bin:${PATH}"
 RUN VIRTUAL_ENV=/opt/venv uv pip install --no-cache "pytest==${PYTEST_VERSION}"
