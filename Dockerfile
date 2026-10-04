@@ -5,12 +5,16 @@
 # renovate: datasource=github-releases depName=astral-sh/uv
 ARG UV_VERSION=0.12.23
 
+# Python 3.12 is not cosmetic: hyundai-kia-connect-api declares
+# Requires-Python >=3.12 and the working host install runs 3.12.12. Declared
+# globally so `docker build --build-arg PYTHON_VERSION=3.13.x --target test`
+# can run the suite against a candidate interpreter before the pin moves.
+# renovate: datasource=docker depName=python
+ARG PYTHON_VERSION=3.12.12
+
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
-# Python 3.12 is not cosmetic: hyundai-kia-connect-api 4.33.1 declares
-# Requires-Python >=3.12, and the working host install runs 3.12.12. The patch
-# version is pinned so a Python bump arrives as a reviewable Renovate PR.
-FROM python:3.12.12-slim-trixie AS builder
+FROM python:${PYTHON_VERSION}-slim-trixie AS builder
 
 # The upstream collector has no release tags worth tracking and no container
 # image of its own, so it is vendored from a pinned commit. Renovate watches
@@ -74,7 +78,26 @@ RUN mkdir -p /app \
     && echo "${MONITOR_COMMIT}" > /app/UPSTREAM_COMMIT
 
 
-FROM python:3.12.12-slim-trixie
+# The test suite, run against the patched tree and the installed API client.
+# Not part of the published image: build it with `--target test`, which the
+# gating workflow does on every push and pull request. A dependency bump that
+# renames something the collector reads fails here rather than at 03:00 in a
+# pod that logs one line and stops collecting.
+FROM builder AS test
+
+# renovate: datasource=pypi depName=pytest
+ARG PYTEST_VERSION=8.4.2
+
+ENV PATH="/opt/venv/bin:${PATH}"
+RUN VIRTUAL_ENV=/opt/venv uv pip install --no-cache "pytest==${PYTEST_VERSION}"
+
+COPY tests/ /src/tests/
+# -p no:cacheprovider: the source tree is not writable in all build contexts.
+RUN cd /src && MONITOR_PY=/src/monitor.py \
+    python -m pytest tests -q -p no:cacheprovider
+
+
+FROM python:${PYTHON_VERSION}-slim-trixie
 
 LABEL org.opencontainers.image.title="hyundai-monitor" \
       org.opencontainers.image.description="IONIQ 5 telemetry collector (hyundai_kia_connect_monitor) in infinite mode" \

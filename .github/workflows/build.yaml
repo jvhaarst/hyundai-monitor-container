@@ -51,6 +51,21 @@ jobs:
             type=semver,pattern={{major}}
             type=sha,prefix=
 
+      # The test suite lives in a `test` stage, so it runs here rather than in
+      # a workflow of its own: this is the check the ruleset gates on, so a
+      # dependency bump that breaks the collector cannot be merged or pushed.
+      # amd64 only and native, because the tests are pure Python and emulating
+      # arm64 would triple the runtime for no extra coverage.
+      - name: Run the test suite
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: test
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       # arm64 is the only architecture that matters here (Raspberry Pi 5 and 4
       # nodes); amd64 comes along so the image can be inspected on a laptop.
       # A pull request builds but does not push, which is what gates Renovate:

@@ -48,6 +48,45 @@ time). Image size: 163 MB for `linux/arm64`.
 ignores unhandled signals for PID 1, so without an init every rollout would
 wait out the full termination grace period and then be `SIGKILL`ed.
 
+### Tests
+
+A pytest suite lives in `tests/` and runs inside the image build as the `test`
+stage, so the `build` check that the ruleset gates on is also the test run. No
+credentials, no network, no account:
+
+```sh
+docker build --target test .
+# or against a candidate interpreter or client:
+docker build --target test --build-arg PYTHON_VERSION=3.14.8 --build-arg API_VERSION=4.35.0 .
+```
+
+`tests/test_api_surface.py` imports the *installed* `hyundai_kia_connect_api`
+and asserts the whole contract the collector depends on: every vehicle
+attribute it reads, every `VehicleManager` method it calls, every keyword it
+passes at login, and every exception it catches by name. It also asserts that
+the cached read and the force refresh are still two different functions — if
+upstream ever merged them, the guard in `monitor.py` would pass while every
+read woke the car. A dependency bump that renames any of this fails in the
+Renovate pull request.
+
+`tests/test_collector_run.py` runs `monitor.py` end to end against
+`tests/fake_api/`, a stand-in client that serves one fixed cached reading, and
+asserts the behaviour that matters in the cluster:
+
+| Test | What would otherwise go unnoticed |
+|---|---|
+| one reading appends exactly one row | a bump that changes the row shape, or writes twice |
+| history is only appended to | a truncation, which looks exactly like a successful start |
+| `monitor.lastrun` is refreshed | the staleness alert reading a stale timestamp forever |
+| the car is never woken | anything reaching `force_refresh_all_vehicles_states()`; the fake writes a marker file and raises |
+| the force-sync workaround refuses to start | patch 02 silently lost, exit code 3 |
+| `%` in the password survives | patch 01 silently lost; without it the run dies in `ConfigParser` |
+| the exception class is logged | patch 03 silently lost; driven by making the fake reject the first login |
+
+What the suite cannot catch is a behavioural change behind an unchanged API
+surface: a different auth flow, or a field whose meaning changed. Only a real
+login proves those, which is what the dry-run story below is for.
+
 ### The three patches
 
 They are applied with `patch -F0` (no fuzz) during the build, and the build
@@ -332,15 +371,19 @@ cluster's alerts rather than bolted onto this chart.
 ## Renovate and gated automerge
 
 `renovate.json` automerges `minor`, `patch`, `digest` and `pin` with
-`platformAutomerge: true`. Majors are never automerged. Two dependencies are
-held back from automerge on purpose:
+`platformAutomerge: true`. Majors are never automerged. Nothing is pinned to an
+old version on suspicion: the test suite runs in the gating build, so a bump
+arrives with evidence. Three dependencies are held back from automerge so that
+a human reads the diff:
 
 - the pinned upstream collector commit (`git-refs`), because a bump is exactly
-  the moment the three patches can break, and
-- `hyundai-kia-connect-api` (`pypi`), because it is the login path.
+  the moment the three patches can break,
+- `hyundai-kia-connect-api` (`pypi`), because it is the login path, and
+- `python` minor and major bumps, because the suite proves the surface and not
+  the auth flow.
 
-A green build on those PRs means the patches still apply; it is not a reason to
-merge without reading the diff. Python minor and major bumps are held too.
+A green build on those PRs means the patches still apply and the API contract
+still holds; it is not a reason to merge without reading the diff.
 
 Automerge is only safe when something gates it. After the first build has run
 on `main`, confirm the check's real name from a check run rather than guessing
@@ -423,9 +466,11 @@ proposes in PR #1 (`4b819d5`) applied all three cleanly, at offsets.
 ## Repository layout
 
 ```
-Dockerfile                     multi-stage, arm64 + amd64
+Dockerfile                     multi-stage, arm64 + amd64; `--target test` runs
+                               the suite
 docker-entrypoint.sh           assembles monitor.cfg, guards, then execs monitor.py
 patches/                       the three local fixes, applied with -F0 at build time
+tests/                         pytest suite; tests/fake_api/ is a stand-in client
 charts/hyundai-monitor/        Helm chart, published to GitHub Pages
 .github/workflows/build.yaml   image to ghcr.io/jvhaarst/hyundai-monitor (the gating check)
 .github/workflows/lint.yaml    helm lint + template, and a check that the chart
@@ -472,6 +517,20 @@ steps alike.
   `build` pinned to `integration_id: 15368`, with the repository-admin role
   bypassed. `allow_auto_merge` and `delete_branch_on_merge` are on, and
   Renovate has onboarded the repository.
+
+- The test matrix on `raspi5`, 2026-10-04, 51 tests per combination:
+
+  | API client | Python | Result |
+  |---|---|---|
+  | 4.33.1 | 3.12.12 | 51 passed |
+  | 4.35.0 | 3.12.12 | 51 passed |
+  | 4.33.1 | 3.13.16 | 51 passed |
+  | 4.33.1 | 3.14.8 | 51 passed |
+  | 4.35.0 | 3.14.8 | 51 passed |
+
+  Which is why Python is not pinned to the 3.12 series: there is no evidence
+  for it. The image still pins an exact patch version as its default, so a
+  bump is a reviewable PR rather than drift.
 
 Not yet done: the cutover itself — seeding the PVC and stopping
 `hyundai-monitor.service` on `raspi5`.
