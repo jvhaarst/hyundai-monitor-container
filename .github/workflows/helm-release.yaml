@@ -12,6 +12,9 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  # Read-only on packages, to check that the image this chart points at exists
+  # before the chart is published.
+  packages: read
 
 concurrency:
   group: "pages"
@@ -40,6 +43,62 @@ jobs:
 
       - name: Install yq
         uses: mikefarah/yq@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # This workflow is not otherwise coupled to the image build, so without
+      # this gate a chart whose appVersion names an image that was never
+      # published would go out. The failure would surface as ImagePullBackOff
+      # during an upgrade, and because the Deployment uses strategy Recreate the
+      # old pod is already gone by then: collection stops until someone rolls
+      # back. Refuse to publish instead.
+      #
+      # The image tag only appears once the matching `v<appVersion>` git tag is
+      # pushed, so this also enforces the release order: tag first, publish the
+      # chart second. The wait covers a tag and a chart change pushed together.
+      - name: Verify the image for the chart's appVersion exists
+        env:
+          IMAGE: ghcr.io/jvhaarst/hyundai-monitor
+        run: |
+          set -euo pipefail
+          APP_VERSION=$(yq '.appVersion' charts/hyundai-monitor/Chart.yaml)
+          REF="${IMAGE}:${APP_VERSION}"
+          echo "Chart appVersion: ${APP_VERSION}"
+          echo "Required image:   ${REF}"
+
+          found=false
+          for attempt in $(seq 1 20); do
+            if docker buildx imagetools inspect "$REF" --raw > /tmp/manifest.json 2>/tmp/inspect.err; then
+              found=true
+              break
+            fi
+            echo "attempt ${attempt}/20: ${REF} not available yet, waiting 30s"
+            sleep 30
+          done
+
+          if [ "$found" != "true" ]; then
+            cat /tmp/inspect.err >&2 || true
+            echo "::error::${REF} does not exist. Push the matching git tag (v${APP_VERSION}) and let \"Build and Push Container\" publish the image before releasing the chart."
+            exit 1
+          fi
+
+          # arm64 is the only architecture the cluster can actually run.
+          if ! jq -e '.manifests' /tmp/manifest.json > /dev/null; then
+            echo "::error::${REF} is a single-platform image; the Raspberry Pi nodes need linux/arm64 in a manifest list."
+            exit 1
+          fi
+          jq -r '.manifests[] | select(.platform.os != "unknown") | "\(.platform.os)/\(.platform.architecture)"' \
+            /tmp/manifest.json | sort -u | tee /tmp/platforms.txt
+          if ! grep -qx 'linux/arm64' /tmp/platforms.txt; then
+            echo "::error::${REF} has no linux/arm64 platform."
+            exit 1
+          fi
+          echo "${REF} exists and covers linux/arm64."
 
       - name: Download existing index (if exists)
         id: existing-index

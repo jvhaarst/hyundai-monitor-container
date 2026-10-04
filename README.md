@@ -381,6 +381,32 @@ JSON
 
 Replace `"context": "build"` with the name step 1 printed.
 
+## Releasing
+
+The chart's `appVersion` is the image tag, and image semver tags come from the
+repository's own `v*` git tags. So the order is fixed:
+
+1. Bump `version` and `appVersion` in `charts/hyundai-monitor/Chart.yaml`, and
+   commit.
+2. Tag and push the tag: `git tag v0.2.0 && git push origin v0.2.0`. That runs
+   "Build and Push Container", which publishes `0.2.0`, `0.2` and `0`.
+3. The chart release runs on the `charts/**` change and **refuses to publish**
+   until `ghcr.io/jvhaarst/hyundai-monitor:<appVersion>` exists and has a
+   `linux/arm64` platform. It waits up to ten minutes for a tag pushed
+   alongside the commit, then fails with the tag it wanted.
+
+That gate is what stops a chart going out ahead of its image. Without it the
+mismatch surfaces as `ImagePullBackOff` during `helm upgrade`, and because the
+Deployment uses `strategy: Recreate` the old pod is already gone at that point,
+so collection stops until someone rolls back.
+
+The image build itself is the other half: the three patches are applied inside
+it with `patch -F0` and then grepped for, and the push happens in the same
+action as the build. A patch that no longer applies fails the build, so no tag
+moves and no image reaches the registry. Both nets were tested by breaking a
+patch's context (`Hunk #1 FAILED`) and by deleting a patch file so the others
+still applied (the grep step caught it); each gave `docker build exit=1`.
+
 ## Repository layout
 
 ```
