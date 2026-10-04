@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  # Read-only: the workflow no longer commits anything.
+  contents: read
   pages: write
   id-token: write
   # Read-only on packages, to check that the image this chart points at exists
@@ -29,14 +30,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
       - name: Install Helm
         uses: azure/setup-helm@v5
@@ -107,35 +100,34 @@ jobs:
           curl -fsSL https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/index.yaml -o existing-index.yaml
           echo "exists=true" >> $GITHUB_OUTPUT
 
-      - name: Auto-bump chart version if needed
+      # This used to bump the version itself and push the bump to main. That
+      # cannot work next to a branch ruleset -- the push is rejected with GH013
+      # unless the Actions app is given a bypass -- and it raced with Renovate's
+      # automerges, which rejected the push as non-fast-forward. The chart
+      # version is a human decision, so the workflow states what it needs and
+      # stops instead of writing to the default branch.
+      - name: Require a new chart version
         run: |
+          set -euo pipefail
           CHART_FILE="charts/hyundai-monitor/Chart.yaml"
           CURRENT_VERSION=$(yq '.version' "$CHART_FILE")
-          echo "Current chart version: $CURRENT_VERSION"
+          echo "Chart version: ${CURRENT_VERSION}"
 
-          if [ -f existing-index.yaml ]; then
-            EXISTING_VERSIONS=$(yq '.entries.hyundai-monitor[].version' existing-index.yaml 2>/dev/null || echo "")
-            if echo "$EXISTING_VERSIONS" | grep -q "^${CURRENT_VERSION}$"; then
-              echo "Version $CURRENT_VERSION already exists in index, bumping patch version..."
-
-              MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
-              MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
-              PATCH=$(echo "$CURRENT_VERSION" | cut -d. -f3)
-              NEW_PATCH=$((PATCH + 1))
-              NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
-
-              echo "Bumping version to: $NEW_VERSION"
-              yq -i ".version = \"$NEW_VERSION\"" "$CHART_FILE"
-
-              git add "$CHART_FILE"
-              git commit -m "chore: bump chart version to $NEW_VERSION [skip ci]"
-              git push
-            else
-              echo "Version $CURRENT_VERSION is new, no bump needed"
-            fi
-          else
-            echo "No existing index found, this is the first release"
+          if [ ! -f existing-index.yaml ]; then
+            echo "No published index yet, so ${CURRENT_VERSION} is the first release."
+            exit 0
           fi
+
+          if yq '.entries.hyundai-monitor[].version' existing-index.yaml | grep -qx -- "${CURRENT_VERSION}"; then
+            MAJOR=$(echo "${CURRENT_VERSION}" | cut -d. -f1)
+            MINOR=$(echo "${CURRENT_VERSION}" | cut -d. -f2)
+            PATCH=$(echo "${CURRENT_VERSION}" | cut -d. -f3)
+            SUGGESTED="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            echo "::error::chart version ${CURRENT_VERSION} is already published. Bump .version in ${CHART_FILE} (${SUGGESTED}, say) in the same commit as the chart change."
+            exit 1
+          fi
+
+          echo "${CURRENT_VERSION} is not in the index yet."
 
       - name: Package Helm chart
         run: |

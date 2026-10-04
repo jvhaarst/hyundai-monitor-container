@@ -386,8 +386,11 @@ Replace `"context": "build"` with the name step 1 printed.
 The chart's `appVersion` is the image tag, and image semver tags come from the
 repository's own `v*` git tags. So the order is fixed:
 
-1. Bump `version` and `appVersion` in `charts/hyundai-monitor/Chart.yaml`, and
-   commit.
+1. Bump `version` in `charts/hyundai-monitor/Chart.yaml` (and `appVersion` too
+   when the image changes), and commit. The release workflow **fails** if
+   `version` is already in the published index, naming the version to set. It
+   deliberately does not commit a bump of its own: CI pushing to the default
+   branch needs a ruleset bypass and races with Renovate's automerges.
 2. Tag and push the tag: `git tag v0.2.0 && git push origin v0.2.0`. That runs
    "Build and Push Container", which publishes `0.2.0`, `0.2` and `0`.
 3. The chart release runs on the `charts/**` change and **refuses to publish**
