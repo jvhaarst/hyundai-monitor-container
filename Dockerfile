@@ -10,7 +10,7 @@ ARG UV_VERSION=0.12.23
 # globally so `docker build --build-arg PYTHON_VERSION=3.13.x --target test`
 # can run the suite against a candidate interpreter before the pin moves.
 # renovate: datasource=docker depName=python
-ARG PYTHON_VERSION=3.12.12
+ARG PYTHON_VERSION=3.14.8
 
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uvbin
 
