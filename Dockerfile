@@ -27,7 +27,7 @@ ARG MONITOR_COMMIT=4b819d59f87671c215690f059ec23dc99eda34a8
 # byte-identical to the PyPI distribution of the same version (verified
 # 2026-10-04), so the dependency is taken from PyPI and Renovate can track it.
 # renovate: datasource=pypi depName=hyundai-kia-connect-api
-ARG API_VERSION=4.35.0
+ARG API_VERSION=4.35.1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl patch \
