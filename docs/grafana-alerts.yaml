@@ -14,9 +14,16 @@
 # victoria-metrics-k8s-stack chart renders from `grafana.alerting` values --
 # merge the `groups:` entry below into that file's list.
 #
-# noDataState: Alerting on the staleness rule is deliberate. If the exporter
-# stops publishing, or the pod disappears entirely, that is exactly the
-# condition the old timer existed to catch, so silence must not look healthy.
+# Absence and staleness are two faults, so they are two rules. On 2026-10-09 the
+# exporter sidecar wedged while the collector kept writing happily: the metric
+# vanished, the staleness rule fired through noDataState: Alerting, and its
+# summary announced that the collector had not run for two days. That was false
+# and sent the investigation at the wrong container.
+#
+# hyundai-monitor-metrics-missing owns absence, via absent(), and says the
+# exporter or the scrape is the suspect. hyundai-monitor-stale keeps
+# noDataState: OK so one fault cannot produce two mails, and only judges a
+# timestamp it can actually see.
 
 apiVersion: 1
 groups:
@@ -25,11 +32,58 @@ groups:
     name: hyundai-monitor
     orgId: 1
     rules:
+      - uid: hyundai-monitor-metrics-missing
+        title: Hyundai monitor metrics missing
+        condition: C
+        for: 30m
+        noDataState: Alerting
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: No metrics from the IONIQ 5 collector pod
+          description: >-
+            hyundai_monitor_last_run_timestamp_seconds is not being published at
+            all. The collector may be perfectly healthy: check the exporter
+            sidecar first, with
+            `kubectl -n hyundai-monitor logs deployment/hyundai-monitor -c metrics`
+            and `up{namespace="hyundai-monitor"}`. A wedged exporter keeps its
+            listening socket open, so the container can look ready while answering
+            nothing; the liveness probe added in chart 0.2.9 restarts it by itself.
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              refId: A
+              editorMode: code
+              instant: true
+              range: false
+              expr: absent(hyundai_monitor_last_run_timestamp_seconds)
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                    params: []
       - uid: hyundai-monitor-stale
         title: Hyundai monitor stale
         condition: C
         for: 1h
-        noDataState: Alerting
+        noDataState: OK
         execErrState: Error
         labels:
           severity: warning
