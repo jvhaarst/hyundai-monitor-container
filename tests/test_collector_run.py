@@ -9,6 +9,7 @@ history is never rewritten, the no-wake guard stops the process with exit code
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "fake_api"))
@@ -70,8 +71,14 @@ def test_lastrun_is_refreshed(data_dir: Path, write_cfg, run_collector) -> None:
     after = (data_dir / "monitor.lastrun").read_text(encoding="utf-8")
     assert after != before
     assert after.startswith("last run"), after
-    # The staleness alert reads the timestamp off this first line.
-    assert "2026-10-04" in after.splitlines()[0]
+    # The staleness alert reads the timestamp off this first line, so what matters
+    # is that it is FRESH. Asserting a literal date made this pass only on the day
+    # it was written: from 2026-10-05 it failed every run and blocked every PR.
+    first = after.splitlines()[0]
+    stamp = first.split(";", 1)[1].strip()
+    written = datetime.strptime(stamp[:16], "%Y-%m-%d %H:%M")
+    age = abs((datetime.now() - written).total_seconds())
+    assert age < 3600, f"lastrun timestamp is {age:.0f}s away from now: {first}"
 
 
 def test_car_is_never_woken(data_dir: Path, write_cfg, run_collector) -> None:

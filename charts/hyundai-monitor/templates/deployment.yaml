@@ -123,6 +123,31 @@ spec:
           ports:
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
+          # On 2026-10-09 the exporter stopped answering and nothing noticed for nine
+          # hours. It still held its listening socket, so the container stayed
+          # ready=true with restarts=0 while /proc/net/tcp showed six connections
+          # stuck in the accept backlog and seven in CLOSE_WAIT with unread bytes.
+          # Scraping had died mid-request when the pod network broke under it.
+          #
+          # A port check would not have caught this: the port was open. The probe has
+          # to require an actual response.
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            # Generous: the exporter reads the CSVs from the volume on each scrape,
+            # and monitor.csv is already over a megabyte. This is here to catch a
+            # wedged process, not a slow one.
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 2
           volumeMounts:
             - name: data
               mountPath: /data
