@@ -3,7 +3,7 @@
 # Global, so it can be expanded in a FROM. buildx refuses variable expansion in
 # `COPY --from`, so the uv image has to come in as a named stage.
 # renovate: datasource=github-releases depName=astral-sh/uv
-ARG UV_VERSION=0.12.23
+ARG UV_VERSION=0.12.24
 
 # Python 3.12 is not cosmetic: hyundai-kia-connect-api declares
 # Requires-Python >=3.12 and the working host install runs 3.12.12. Declared
