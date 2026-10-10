@@ -20,8 +20,12 @@
 # summary announced that the collector had not run for two days. That was false
 # and sent the investigation at the wrong container.
 #
-# hyundai-monitor-metrics-missing owns absence, via absent(), and says the
-# exporter or the scrape is the suspect. hyundai-monitor-stale keeps
+# hyundai-monitor-metrics-missing owns absence and says the exporter or the
+# scrape is the suspect. It queries up{} rather than absent(): absent() returns
+# NO SERIES when the metric is present, and no series is NoData, so with
+# noDataState: Alerting that rule fires exactly when everything is healthy --
+# which it did, for ten hours on 2026-10-09. up{} always returns a series while
+# the target is known, so NoData there means only that the target is gone. hyundai-monitor-stale keeps
 # noDataState: OK so one fault cannot produce two mails, and only judges a
 # timestamp it can actually see.
 
@@ -61,7 +65,7 @@ groups:
               editorMode: code
               instant: true
               range: false
-              expr: absent(hyundai_monitor_last_run_timestamp_seconds)
+              expr: up{namespace="hyundai-monitor"}
           - refId: C
             datasourceUid: __expr__
             model:
@@ -70,8 +74,8 @@ groups:
               expression: A
               conditions:
                 - evaluator:
-                    type: gt
-                    params: [0]
+                    type: lt
+                    params: [1]
                   operator:
                     type: and
                   query:
