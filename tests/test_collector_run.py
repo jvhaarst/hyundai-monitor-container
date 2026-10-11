@@ -9,7 +9,7 @@ history is never rewritten, the no-wake guard stops the process with exit code
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "fake_api"))
@@ -74,10 +74,16 @@ def test_lastrun_is_refreshed(data_dir: Path, write_cfg, run_collector) -> None:
     # The staleness alert reads the timestamp off this first line, so what matters
     # is that it is FRESH. Asserting a literal date made this pass only on the day
     # it was written: from 2026-10-05 it failed every run and blocked every PR.
+    # run_collector pins TZ=Etc/UTC, matching the deployment, so the collector
+    # writes UTC. Comparing that against a naive datetime.now() passes only
+    # where the test process is also UTC -- true in the test container, false on
+    # a workstation in CEST, where the age came out 7200s.
     first = after.splitlines()[0]
     stamp = first.split(";", 1)[1].strip()
-    written = datetime.strptime(stamp[:16], "%Y-%m-%d %H:%M")
-    age = abs((datetime.now() - written).total_seconds())
+    written = datetime.strptime(stamp[:16], "%Y-%m-%d %H:%M").replace(
+        tzinfo=timezone.utc
+    )
+    age = abs((datetime.now(timezone.utc) - written).total_seconds())
     assert age < 3600, f"lastrun timestamp is {age:.0f}s away from now: {first}"
 
 
