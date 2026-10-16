@@ -368,6 +368,13 @@ rules against the `VictoriaMetrics` datasource and mails through its own SMTP
 contact point — no `vmalert` or `vmalertmanager` needed, and no second mail
 path to maintain.
 
+Four rules are provisioned, from `grafana.alerting` in
+`~/code/upgrade_nodes/k3s/monitoring/values.yaml` — not from this repository,
+so there is one copy and it is the deployed one. See
+[docs/grafana-alerts.md](docs/grafana-alerts.md) for what each rule catches,
+how to diff the committed copy against the cluster, and why absence and
+staleness are two separate rules.
+
 ### Old proposal, kept for the reasoning
 
 The host timer `car-monitor-alert.timer` reads `monitor.lastrun`, compares it
