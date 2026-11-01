@@ -133,18 +133,27 @@ metrics:
       memory: 16Mi
     limits:
       memory: 48Mi
-  # Readiness only, never liveness. A readiness probe takes the pod out of
-  # service endpoints; a liveness probe kills the container, and killing this
-  # sidecar restarts the pod the collector lives in. There is no Service here
-  # anyway -- the scrape is a VMPodScrape against the pod IP, and the pod role
-  # does not filter on readiness -- so this reports health without gating
-  # anything. That is the whole point: the previous attempt at probes here used
-  # liveness and crash-looped the container 123 times in eleven hours.
+  # Both probes are safe here, and the reason given for having neither was
+  # wrong. The chart used to say this sidecar "must never be able to take the
+  # collector down with it", which assumed a failed probe restarts the pod.
+  # It does not: the kubelet restarts the individual container. Measured on
+  # 2026-11-01 by SIGKILLing the exporter in the running pod --
   #
-  # The real cause of that was a single-threaded server monopolised by the
-  # scraper's keep-alive connection, fixed in exporter.py (appVersion 0.1.5).
-  # The thresholds below are deliberately slack regardless: this metric feeds a
-  # staleness alert measured in hours, so nothing is gained by failing fast.
+  #   metrics:   restarts 0 -> 1, lastExit 137, restarted in place
+  #   collector: restarts 0, untouched, original startedAt
+  #   pod uid and startTime unchanged
+  #
+  # -- after which readiness came back by itself within 40 s. So a liveness
+  # probe costs a scrape gap, not a collection gap.
+  #
+  # Readiness still carries the tighter numbers, so it reports a problem first
+  # and liveness only acts on one that persists. Both are slack by design: the
+  # metric feeds a staleness alert measured in hours, and the exporter answers
+  # in 0.07 s, so there is nothing to gain by failing fast and a crash loop to
+  # lose. The 123-restart loop of October 2026 was a single-threaded server
+  # monopolised by the scraper's keep-alive connection, fixed in appVersion
+  # 0.1.5; failureThreshold 6 at periodSeconds 60 means six solid minutes of
+  # failure before a restart, so a transient one cannot start a loop.
   readinessProbe:
     enabled: true
     initialDelaySeconds: 10
@@ -152,6 +161,12 @@ metrics:
     timeoutSeconds: 5
     failureThreshold: 3
     successThreshold: 1
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 60
+    timeoutSeconds: 10
+    failureThreshold: 6
 
 nodeSelector: {}
 tolerations: []

@@ -144,7 +144,7 @@ two-year history. Do not "improve" this to `Europe/Amsterdam`.
 - No liveness or readiness probe **on the collector**. There is nothing to
   serve, and a probe that restarted the pod mid-append would risk the one thing
   worth protecting. A stuck collector is caught by the staleness alert instead.
-  The `metrics` sidecar does carry a readiness probe — see the exporter section.
+  The `metrics` sidecar carries both probes — see the exporter section.
 
 ### Restart semantics, and where they differ from the host unit
 
@@ -360,13 +360,29 @@ image, reads the same `monitor.lastrun`, and publishes:
 
 A missing `monitor.lastrun` omits the sample rather than publishing `0`, so
 `absent()` catches it instead of the alert reading 1 January 1970 as an age.
-The sidecar mounts the volume read-only and has its own small limits: it must
-never be able to take the collector down. It carries a **readiness probe and
-never a liveness one** — readiness reports health, while liveness kills the
-container and killing this sidecar restarts the pod the collector lives in.
-Nothing is gated by it either, because there is no Service and the `VMPodScrape`
-pod role does not filter on readiness, so the scrape continues even while the
-pod is marked NotReady.
+The sidecar mounts the volume read-only and has its own small limits, so it
+cannot starve the collector. It carries **both probes**, on `/metrics`.
+
+The chart used to carry neither, justified by "it must never be able to take the
+collector down with it". That justification was wrong, and it survived three
+chart versions. A failed probe restarts **the container**, not the pod.
+Measured on 2026-11-01 by sending `SIGKILL` to the exporter in the running pod:
+
+```
+metrics:    restarts 0 -> 1, lastExit 137, restarted in place at 10:08:37
+collector:  restarts 0, untouched, still startedAt 10:02:32
+pod uid and startTime unchanged
+```
+
+Readiness came back by itself within 40 s. So a liveness probe here costs a
+scrape gap, not a collection gap.
+
+Readiness carries the tighter thresholds so it reports a problem first, and
+liveness acts only on one that persists — `failureThreshold: 6` at
+`periodSeconds: 60` is six solid minutes of failure before a restart, which a
+transient failure cannot reach. Nothing is gated by readiness either: there is no
+Service, and the `VMPodScrape` pod role does not filter on readiness, so the
+scrape continues even while the pod is marked NotReady.
 
 ### The exporter has to be threaded (fixed in appVersion 0.1.5)
 
