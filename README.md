@@ -141,9 +141,10 @@ two-year history. Do not "improve" this to `Europe/Amsterdam`.
 - The Secret volume uses `defaultMode: 0440`. With `fsGroup` set the kubelet
   writes those files as `root:fsGroup`, so `0400` would lock out the non-root
   collector.
-- No liveness or readiness probe. There is nothing to serve, and a probe that
-  restarted the pod mid-append would risk the one thing worth protecting. A
-  stuck collector is caught by the staleness alert instead.
+- No liveness or readiness probe **on the collector**. There is nothing to
+  serve, and a probe that restarted the pod mid-append would risk the one thing
+  worth protecting. A stuck collector is caught by the staleness alert instead.
+  The `metrics` sidecar does carry a readiness probe — see the exporter section.
 
 ### Restart semantics, and where they differ from the host unit
 
@@ -359,8 +360,45 @@ image, reads the same `monitor.lastrun`, and publishes:
 
 A missing `monitor.lastrun` omits the sample rather than publishing `0`, so
 `absent()` catches it instead of the alert reading 1 January 1970 as an age.
-The sidecar mounts the volume read-only, has its own small limits, and has no
-probes: it must never be able to take the collector down.
+The sidecar mounts the volume read-only and has its own small limits: it must
+never be able to take the collector down. It carries a **readiness probe and
+never a liveness one** — readiness reports health, while liveness kills the
+container and killing this sidecar restarts the pod the collector lives in.
+Nothing is gated by it either, because there is no Service and the `VMPodScrape`
+pod role does not filter on readiness, so the scrape continues even while the
+pod is marked NotReady.
+
+### The exporter has to be threaded (fixed in appVersion 0.1.5)
+
+`exporter.py` sets `protocol_version = "HTTP/1.1"`, so a scraper keeps its
+connection open between scrapes. On the original single-threaded `HTTPServer`
+that parked the only thread inside `handle_one_request()` and the server never
+returned to `accept()`. The kernel still completed the TCP handshake for
+everyone else, so the symptom was a connection that established in 0.2 ms and
+then returned nothing, from every client except the one holding the connection.
+
+Measured on the live pod before the fix:
+
+```
+LISTEN      Recv-Q 8     0.0.0.0:9091                        <- 8 queued, never accepted
+ESTAB       10.42.4.91:9091  10.42.0.77:42422   fd=4         <- vmagent, held open
+CLOSE-WAIT  10.42.4.91:9091  10.42.4.1:54510                <- probe/curl, abandoned
+threads: 1
+```
+
+That is what crash-looped the container **123 times in eleven hours** in
+October 2026 when a liveness probe was first added: `Liveness probe failed:
+context deadline exceeded`. It was diagnosed then as "something about the path
+from the kubelet to that specific pod", because a `curl` run straight after a
+restart succeeded — before vmagent had reconnected and taken the thread. The
+probes were reverted and the cause was left open.
+
+`ThreadingHTTPServer` is the fix, and it is still stdlib. `daemon_threads` is
+set by that class, so a client holding a connection open cannot delay shutdown.
+`tests/test_exporter.py` pins it by holding one keep-alive connection open and
+asserting a second client is still served; it closes both client sockets before
+`server.shutdown()`, because on a regressed server that call waits for a loop
+that is blocked, which would hang CI instead of failing it.
 
 `VMPodScrape` (`metrics.podScrape.enabled`) hands it to the
 victoria-metrics-operator. Alerting itself lives in Grafana, which evaluates

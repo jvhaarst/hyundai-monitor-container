@@ -102,7 +102,9 @@ spec:
         {{- if .Values.metrics.enabled }}
         # Reads the same volume, read-only, and publishes
         # hyundai_monitor_last_run_timestamp_seconds. It must never be able to
-        # take the collector down with it, hence no probes and its own limits.
+        # take the collector down with it, hence its own limits and a readiness
+        # probe but never a liveness one: killing this sidecar restarts the pod
+        # the collector lives in.
         - name: metrics
           image: {{ include "hyundai-monitor.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -127,6 +129,17 @@ spec:
             - name: data
               mountPath: /data
               readOnly: true
+          {{- if .Values.metrics.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: {{ .Values.metrics.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.metrics.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.metrics.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.metrics.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.metrics.readinessProbe.successThreshold }}
+          {{- end }}
           {{- with .Values.metrics.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

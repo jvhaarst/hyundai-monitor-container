@@ -108,3 +108,59 @@ def test_row_counts_are_cached_until_the_file_changes(seeded, tmp_path: Path) ->
     with (tmp_path / "monitor.csv").open("a", encoding="utf-8") as handle:
         handle.write("row3\n")
     assert seeded.count_rows("monitor.csv") == 3
+
+
+def test_a_held_keepalive_connection_does_not_block_other_clients(
+    seeded, tmp_path: Path
+) -> None:
+    """The regression test for 123 restarts in eleven hours.
+
+    vmagent keeps its scrape connection open between scrapes. On a
+    single-threaded server that parks the only thread inside
+    handle_one_request() forever, so every other client -- the readiness probe
+    above all -- completes the TCP handshake in the kernel and then waits for a
+    response that never comes. It presents as "context deadline exceeded" and
+    looks exactly like a network fault, which is how it was misdiagnosed.
+
+    So: hold one keep-alive connection open mid-conversation, then prove a
+    second client still gets served.
+
+    Both client sockets are closed before `server.shutdown()`, because
+    `shutdown()` waits for the serve_forever loop to come round again. On a
+    regressed server that loop is blocked on the held socket, so closing first
+    is what makes this test *fail* in five seconds instead of hanging CI.
+    """
+    import http.client
+    import threading
+
+    server = seeded.ThreadingHTTPServer(("127.0.0.1", 0), seeded.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address[0], server.server_address[1]
+    squatter = probe = None
+    try:
+        # A scraper that has finished one request and is holding the socket.
+        squatter = http.client.HTTPConnection(host, port, timeout=5)
+        squatter.request("GET", "/metrics")
+        assert squatter.getresponse().status == 200
+        assert squatter.sock is not None, "connection must still be open"
+
+        # A second client, on its own connection, while the first is still open.
+        probe = http.client.HTTPConnection(host, port, timeout=5)
+        try:
+            probe.request("GET", "/metrics")
+            response = probe.getresponse()
+        except OSError as ex:
+            # socket.timeout while the server ignores the connection, or
+            # ConnectionResetError once the test tears the squatter down -- both
+            # mean the same thing, and both are the bug being pinned.
+            pytest.fail(f"second client was not served while one was open: {ex!r}")
+        assert response.status == 200
+        assert b"hyundai_monitor_up 1" in response.read()
+    finally:
+        for connection in (probe, squatter):
+            if connection is not None:
+                connection.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

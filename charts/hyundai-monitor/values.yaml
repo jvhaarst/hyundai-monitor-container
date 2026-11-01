@@ -133,6 +133,25 @@ metrics:
       memory: 16Mi
     limits:
       memory: 48Mi
+  # Readiness only, never liveness. A readiness probe takes the pod out of
+  # service endpoints; a liveness probe kills the container, and killing this
+  # sidecar restarts the pod the collector lives in. There is no Service here
+  # anyway -- the scrape is a VMPodScrape against the pod IP, and the pod role
+  # does not filter on readiness -- so this reports health without gating
+  # anything. That is the whole point: the previous attempt at probes here used
+  # liveness and crash-looped the container 123 times in eleven hours.
+  #
+  # The real cause of that was a single-threaded server monopolised by the
+  # scraper's keep-alive connection, fixed in exporter.py (appVersion 0.1.5).
+  # The thresholds below are deliberately slack regardless: this metric feeds a
+  # staleness alert measured in hours, so nothing is gained by failing fast.
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
 
 nodeSelector: {}
 tolerations: []
