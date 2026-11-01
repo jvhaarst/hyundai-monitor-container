@@ -101,10 +101,10 @@ spec:
           {{- end }}
         {{- if .Values.metrics.enabled }}
         # Reads the same volume, read-only, and publishes
-        # hyundai_monitor_last_run_timestamp_seconds. It must never be able to
-        # take the collector down with it, hence its own limits and a readiness
-        # probe but never a liveness one: killing this sidecar restarts the pod
-        # the collector lives in.
+        # hyundai_monitor_last_run_timestamp_seconds. It has its own limits so
+        # it cannot starve the collector, and both probes, because a failed
+        # probe restarts this container alone and leaves the collector running
+        # -- verified, see the comments in values.yaml.
         - name: metrics
           image: {{ include "hyundai-monitor.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -139,6 +139,16 @@ spec:
             timeoutSeconds: {{ .Values.metrics.readinessProbe.timeoutSeconds }}
             failureThreshold: {{ .Values.metrics.readinessProbe.failureThreshold }}
             successThreshold: {{ .Values.metrics.readinessProbe.successThreshold }}
+          {{- end }}
+          {{- if .Values.metrics.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: {{ .Values.metrics.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.metrics.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.metrics.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.metrics.livenessProbe.failureThreshold }}
           {{- end }}
           {{- with .Values.metrics.resources }}
           resources:
