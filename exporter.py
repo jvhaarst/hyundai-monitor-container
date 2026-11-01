@@ -7,9 +7,17 @@ process in this pod, because the volume is ReadWriteOnce. So this exporter runs
 as a sidecar, reads the same file, and turns it into the one number an alert
 needs: when the collector last completed a run.
 
-Deliberately stdlib only, single-threaded, and no dependency on the collector
-itself. It must never be the reason the pod restarts, so every read failure
-becomes a metric rather than an exception.
+Deliberately stdlib only, and no dependency on the collector itself. It must
+never be the reason the pod restarts, so every read failure becomes a metric
+rather than an exception.
+
+It is threaded, which it has to be. With `protocol_version = "HTTP/1.1"` a
+scraper keeps its connection open between scrapes, and a single-threaded server
+stays parked on that one socket and never returns to `accept()`. Everything
+else -- a readiness probe, a second scraper, a human with curl -- then completes
+the TCP handshake in the kernel and waits forever. That cost this pod 123
+restarts in eleven hours in October 2026, diagnosed as "context deadline
+exceeded" against the pod IP and misread as a network problem.
 """
 
 from __future__ import annotations
@@ -20,7 +28,7 @@ import re
 import sys
 import time
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 DATA_DIR = Path(os.environ.get("MONITOR_DATA_DIR", "/data"))
@@ -158,7 +166,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     logging.info("serving metrics on :%d from %s", PORT, DATA_DIR)
-    server = HTTPServer(("", PORT), Handler)
+    # ThreadingHTTPServer, not HTTPServer: see the module docstring. It sets
+    # daemon_threads, so a client holding a keep-alive connection open cannot
+    # delay shutdown either.
+    server = ThreadingHTTPServer(("", PORT), Handler)
     server.serve_forever()
 
 
